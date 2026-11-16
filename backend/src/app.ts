@@ -21,11 +21,21 @@ const origins = () =>
     .split(",")
     .map((s) => s.trim().replace(/\/+$/, ""))
     .filter(Boolean);
+
+const isAllowedOrigin = (url?: string) => {
+  if (!url) return false;
+  const normalized = url.trim().replace(/\/+$/, "");
+  if (origins().includes(normalized)) return true;
+  if (/^https:\/\/nexbank-adbms[a-z0-9-]*\.vercel\.app$/.test(normalized)) return true;
+  if (normalized === "https://nexbank-adbms.vercel.app") return true;
+  return false;
+};
+
 app.use(
   cors({
     origin: (origin, cb) => {
       const normalized = (origin || "").trim().replace(/\/+$/, "");
-      cb(null, !normalized || origins().includes(normalized));
+      cb(null, !normalized || isAllowedOrigin(normalized));
     },
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
@@ -35,12 +45,22 @@ app.use(express.json({ limit: "32kb" }));
 app.use(cookieParser());
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
-  const origin = (req.headers.origin || "").trim().replace(/\/+$/, "");
+  let origin = (req.headers.origin || "").trim().replace(/\/+$/, "");
+  if (!origin && req.headers.referer) {
+    try {
+      origin = new URL(req.headers.referer).origin;
+    } catch {}
+  }
+  if (!origin && req.headers["x-forwarded-host"]) {
+    origin = `https://${req.headers["x-forwarded-host"]}`;
+  }
   if (
     ["POST", "PATCH", "DELETE", "PUT"].includes(req.method) &&
-    (!origin || !origins().includes(origin))
-  )
+    !isAllowedOrigin(origin)
+  ) {
+    logger.warn({ origin, headers: req.headers }, "Blocked untrusted origin");
     return next(new ApiError(403, "Untrusted request origin"));
+  }
   next();
 });
 app.use("/api", rateLimit({ windowMs: 60000, limit: 200 }));
