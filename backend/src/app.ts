@@ -49,7 +49,8 @@ app.get("/health/ready", async (_req, res, next) => {
   try {
     await rows("SELECT 1");
     res.json({ status: "ready", revision: buildRevision });
-  } catch {
+  } catch (err: any) {
+    logger.error({ err: err?.message || err }, "Database readiness check failed");
     next(new ApiError(503, "Database unavailable"));
   }
 });
