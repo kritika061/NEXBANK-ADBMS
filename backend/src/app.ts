@@ -17,10 +17,16 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(helmet());
 const origins = () =>
-  (process.env.FRONTEND_ORIGINS || "http://localhost:5173").split(",");
+  (process.env.FRONTEND_ORIGINS || "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
 app.use(
   cors({
-    origin: (origin, cb) => cb(null, !origin || origins().includes(origin)),
+    origin: (origin, cb) => {
+      const normalized = (origin || "").trim().replace(/\/+$/, "");
+      cb(null, !normalized || origins().includes(normalized));
+    },
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
   }),
@@ -29,9 +35,10 @@ app.use(express.json({ limit: "32kb" }));
 app.use(cookieParser());
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
+  const origin = (req.headers.origin || "").trim().replace(/\/+$/, "");
   if (
     ["POST", "PATCH", "DELETE", "PUT"].includes(req.method) &&
-    (!req.headers.origin || !origins().includes(req.headers.origin))
+    (!origin || !origins().includes(origin))
   )
     return next(new ApiError(403, "Untrusted request origin"));
   next();
